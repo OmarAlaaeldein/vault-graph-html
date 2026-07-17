@@ -209,17 +209,29 @@ def read_embed(path, limit):
     return raw.decode("utf-8", errors="replace")
 
 
+def git_ignored_paths(repo_root, paths):
+    """Return the subset of paths git would ignore (empty set when git or a
+    repo is absent). Gitignored files are private by declaration — untracked
+    credentials, local state — and must never be matched or embedded."""
+    if not paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", repo_root, "check-ignore", "--stdin", "-z"],
+            input="\0".join(paths).encode(), stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, timeout=10)
+        return {p for p in proc.stdout.decode("utf-8", errors="replace").split("\0") if p}
+    except (OSError, subprocess.SubprocessError):
+        return set()
+
+
 def build_src_map(src_root, vault, outdir):
     """Map note names to real files: exact filename match beats stem match,
-    shallower paths beat deeper ones. Any extension / language / directory."""
+    shallower paths beat deeper ones. Any extension / language / directory.
+    Files the repo's .gitignore excludes are never offered — what the repo
+    itself refuses to publish, the graph must not embed."""
     vault = os.path.abspath(vault)
-    candidates = {}  # lowered key -> (priority, depth, relpath, abspath)
-
-    def offer(key, prio, depth, path):
-        rel = os.path.relpath(path, outdir).replace(os.sep, "/")
-        cur = candidates.get(key)
-        if cur is None or (prio, depth) < cur[:2]:
-            candidates[key] = (prio, depth, rel, path)
+    offers = []  # (lowered key, priority, depth, abspath)
 
     for root, dirs, files in os.walk(src_root):
         if os.path.abspath(root).startswith(vault):
@@ -228,10 +240,21 @@ def build_src_map(src_root, vault, outdir):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d.lower() not in SKIP_DIRS)
         depth = os.path.relpath(root, src_root).count(os.sep)
         for entry in sorted(files) + sorted(dirs):
-            offer(entry.lower(), 0, depth, os.path.join(root, entry))
+            path = os.path.join(root, entry)
+            offers.append((entry.lower(), 0, depth, path))
             stem = os.path.splitext(entry)[0]
             if stem != entry:
-                offer(stem.lower(), 1, depth, os.path.join(root, entry))
+                offers.append((stem.lower(), 1, depth, path))
+
+    ignored = git_ignored_paths(src_root, sorted({p for _, _, _, p in offers}))
+    candidates = {}  # lowered key -> (priority, depth, relpath, abspath)
+    for key, prio, depth, path in offers:
+        if path in ignored:
+            continue
+        rel = os.path.relpath(path, outdir).replace(os.sep, "/")
+        cur = candidates.get(key)
+        if cur is None or (prio, depth) < cur[:2]:
+            candidates[key] = (prio, depth, rel, path)
     return candidates
 
 
