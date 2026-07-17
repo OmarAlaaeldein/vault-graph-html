@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vault-graph — render an Obsidian vault as a single self-contained HTML knowledge graph.
+"""vault-graph: render an Obsidian vault as a single self-contained HTML knowledge graph.
 
 Parses every .md note in a vault, resolves [[wikilinks]] (including aliases,
 [[link|display]], [[link#heading]] and table-escaped [[link\\|display]] forms),
@@ -17,7 +17,9 @@ served from) the same tree.
 
 Each node is stamped with created/updated dates and the last commit that
 touched it: git history (--follow, rename-aware) when the file is committed,
-filesystem dates otherwise; linked source files get their own commit stamp.
+filesystem dates otherwise, and the earlier of the two wins, so a file first
+committed long after it was written keeps its true origin date. Linked source
+files get their own commit stamp.
 
 Usage:
   vault_graph.py [VAULT] [-o out.html] [--src DIR | --no-src] [--title NAME]
@@ -43,7 +45,7 @@ import time
 
 WIKILINK = re.compile(r"\[\[([^\]\[]+?)\]\]")
 
-# Validated categorical palette for the dark surface (#1a1a19) — slots are
+# Validated categorical palette for the dark surface (#1a1a19): slots are
 # assigned to groups in descending note-count order; extra groups fold to gray.
 PALETTE = ["#3987e5", "#199e70", "#c98500", "#008300",
            "#9085e9", "#e66767", "#d55181", "#d95926"]
@@ -182,7 +184,7 @@ def git_log_dates(path):
 
 
 def fs_dates(path):
-    """(created, modified) from the filesystem — the fallback when a file has
+    """(created, modified) from the filesystem, the fallback when a file has
     no git history. Uses macOS/BSD birthtime where the OS records it."""
     try:
         st = os.stat(path)
@@ -244,7 +246,7 @@ def find_vault(cwd):
     if len(cands) == 1:
         return cands[0]
     if cands:
-        sys.exit("error: several vaults in the current directory — pass one explicitly:\n  "
+        sys.exit("error: several vaults in the current directory; pass one explicitly:\n  "
                  + "\n  ".join(os.path.basename(c) for c in cands))
     sys.exit("error: no vault given and none found in the current directory\n"
              "(looked for ./Vault, ./.obsidian, or a subfolder containing .obsidian)")
@@ -317,14 +319,18 @@ def main():
         if args.no_dates:
             continue
         info = git_log_dates(n["_abs"])
+        fs_created, fs_modified = fs_dates(n["_abs"])
         if info:
-            n["created"], n["modified"], n["rev"], n["revmsg"] = info
+            created, modified, rev, revmsg = info
+            # a file first committed long after it was written keeps its true
+            # origin: the filesystem dates win wherever they are earlier
+            if fs_created:
+                created, modified = min(created, fs_created), min(modified, fs_modified)
+            n["created"], n["modified"], n["rev"], n["revmsg"] = created, modified, rev, revmsg
             dates_git += 1
-        else:
-            created, modified = fs_dates(n["_abs"])
-            if created:
-                n["created"], n["modified"] = created, modified
-                dates_fs += 1
+        elif fs_created:
+            n["created"], n["modified"] = fs_created, fs_modified
+            dates_fs += 1
 
     ghosts = [{"id": t, "group": "Unresolved", "refs": sorted(refs)}
               for t, refs in sorted(unresolved.items())]
@@ -378,7 +384,7 @@ def main():
     print(f"sources:  {src_mapped} notes linked to real files" if not args.no_src
           else "sources:  disabled (--no-src)")
     embed_bytes = sum(len(v.encode("utf-8")) for v in files.values())
-    print(f"embedded: {len(files)} files ({embed_bytes:,} bytes) — file links work anywhere")
+    print(f"embedded: {len(files)} files ({embed_bytes:,} bytes); file links work anywhere")
     print("dates:    disabled (--no-dates)" if args.no_dates else
           f"dates:    {dates_git} notes from git, {dates_fs} from filesystem · "
           f"{src_revs} source commit stamps")

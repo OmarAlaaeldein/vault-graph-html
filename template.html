@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title>__TITLE__ — Knowledge Graph</title>
+<title>__TITLE__ · Knowledge Graph</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>__EMOJI__</text></svg>">
 <style>
   :root {
@@ -255,7 +255,7 @@ const GROUP_LABEL = Object.fromEntries(GROUP_META.map(g => [g[0], g[2]]));
 /* ---------- build graph model ---------- */
 const FILES = DATA.files || {};
 const nodes = DATA.nodes.map(n => ({ ...n, ghost: false }));
-for (const g of (DATA.ghosts || [])) nodes.push({ id: g.id, group: "Unresolved", ghost: true, refs: g.refs, tags: [], aliases: [], preview: "Unresolved link — no note with this name exists yet." });
+for (const g of (DATA.ghosts || [])) nodes.push({ id: g.id, group: "Unresolved", ghost: true, refs: g.refs, tags: [], aliases: [], preview: "Unresolved link: no note with this name exists yet." });
 const byId = new Map(nodes.map(n => [n.id, n]));
 const edges = DATA.edges
   .map(e => ({ s: byId.get(e.s), t: byId.get(e.t) }))
