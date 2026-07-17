@@ -150,6 +150,12 @@
   .gchip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink);
     background: var(--panel-2); border-radius: 6px; padding: 2px 8px; }
   .preview { color: var(--ink-2); font-size: 13px; margin-bottom: 12px; }
+  .gitmeta { color: var(--ink-3); font-size: 11.5px; margin: -4px 0 12px 0;
+    display: flex; flex-direction: column; gap: 3px; }
+  .gitmeta b { color: var(--ink-2); font-weight: 600; }
+  .gitmeta code { background: var(--panel-2); border-radius: 5px; padding: 1px 5px;
+    font: 10.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ink-2); }
+  .grev { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .flinks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .flinks a, .flinks button {
     display: inline-flex; align-items: center; gap: 6px;
@@ -623,6 +629,17 @@ function select(n) {
   for (const t of (n.tags || [])) h += `<span class="tag">#${esc(t)}</span>`;
   h += `</div>`;
   if (n.preview) h += `<p class="preview">${esc(n.preview)}</p>`;
+  if (n.created || n.rev || n.srev) {
+    h += `<div class="gitmeta">`;
+    if (n.created) {
+      h += `<div>Created <b>${esc(n.created)}</b>`;
+      if (n.modified && n.modified !== n.created) h += ` · updated <b>${esc(n.modified)}</b>`;
+      h += `</div>`;
+    }
+    if (n.rev) h += `<div class="grev">📝 <code>${esc(n.rev)}</code> ${esc(n.revmsg || "")}</div>`;
+    if (n.srev) h += `<div class="grev">⚙️ <code>${esc(n.srev)}</code> ${esc(n.srevmsg || "")}${n.smod ? ` · ${esc(n.smod)}` : ""}</div>`;
+    h += `</div>`;
+  }
   const files = [];
   if (n.path) files.push(fileLink(n.path, "📝", n.path.split("/").pop()));
   if (n.src) files.push(fileLink(n.src, "⚙️", n.src));

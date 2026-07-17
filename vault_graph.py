@@ -15,6 +15,10 @@ alone. Anything that can't be embedded (binary, over --max-embed, a directory)
 falls back to a relative link that resolves when the HTML lives inside (or is
 served from) the same tree.
 
+Each node is stamped with created/updated dates and the last commit that
+touched it: git history (--follow, rename-aware) when the file is committed,
+filesystem dates otherwise; linked source files get their own commit stamp.
+
 Usage:
   vault_graph.py [VAULT] [-o out.html] [--src DIR | --no-src] [--title NAME]
                  [--emoji CHAR] [--color GROUP=HEX ...]
@@ -33,7 +37,9 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+import time
 
 WIKILINK = re.compile(r"\[\[([^\]\[]+?)\]\]")
 
@@ -148,6 +154,45 @@ def resolve_links(notes, alias_map):
     return edges, unresolved
 
 
+_git_ok = True
+
+
+def git_log_dates(path):
+    """(created, modified, last_hash, last_subject) from git history, or None
+    if git is missing or the file has no committed history."""
+    global _git_ok
+    if not _git_ok:
+        return None
+    try:
+        r = subprocess.run(
+            ["git", "-C", os.path.dirname(path) or ".", "log", "--follow",
+             "--format=%as\x1f%h\x1f%s", "--", path],
+            capture_output=True, text=True, timeout=15)
+    except FileNotFoundError:
+        _git_ok = False
+        return None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    if r.returncode != 0 or not lines:
+        return None
+    modified, h, subj = (lines[0].split("\x1f") + ["", ""])[:3]
+    created = lines[-1].split("\x1f", 1)[0]
+    return created, modified, h, subj
+
+
+def fs_dates(path):
+    """(created, modified) from the filesystem — the fallback when a file has
+    no git history. Uses macOS/BSD birthtime where the OS records it."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None, None
+    born = getattr(st, "st_birthtime", None) or st.st_mtime
+    day = lambda t: time.strftime("%Y-%m-%d", time.localtime(t))
+    return day(min(born, st.st_mtime)), day(st.st_mtime)
+
+
 def read_embed(path, limit):
     """Return a file's text for embedding, or None (missing, binary, too big)."""
     try:
@@ -223,6 +268,8 @@ def main():
     ap.add_argument("--max-embed", type=int, default=512, metavar="KB",
                     help="per-file cap for embedding file contents into the HTML "
                          "(default 512; 0 disables embedding)")
+    ap.add_argument("--no-dates", action="store_true",
+                    help="skip created/updated dates and git commit stamps")
     args = ap.parse_args()
 
     vault = os.path.abspath(args.vault) if args.vault else find_vault(os.getcwd())
@@ -244,7 +291,7 @@ def main():
     embed_limit = args.max_embed * 1024
     files = {}
 
-    src_mapped = 0
+    src_mapped = src_revs = 0
     if not args.no_src:
         src_root = os.path.abspath(args.src or os.path.dirname(vault))
         src_map = build_src_map(src_root, vault, outdir)
@@ -256,11 +303,28 @@ def main():
                 text = read_embed(hit[3], embed_limit)
                 if text is not None:
                     files[hit[2]] = text
+                if not args.no_dates:
+                    sinfo = git_log_dates(hit[3])
+                    if sinfo:
+                        n["smod"], n["srev"], n["srevmsg"] = sinfo[1], sinfo[2], sinfo[3]
+                        src_revs += 1
 
+    dates_git = dates_fs = 0
     for n in notes.values():
         text = read_embed(n["_abs"], embed_limit)
         if text is not None:
             files[n["path"]] = text
+        if args.no_dates:
+            continue
+        info = git_log_dates(n["_abs"])
+        if info:
+            n["created"], n["modified"], n["rev"], n["revmsg"] = info
+            dates_git += 1
+        else:
+            created, modified = fs_dates(n["_abs"])
+            if created:
+                n["created"], n["modified"] = created, modified
+                dates_fs += 1
 
     ghosts = [{"id": t, "group": "Unresolved", "refs": sorted(refs)}
               for t, refs in sorted(unresolved.items())]
@@ -315,6 +379,9 @@ def main():
           else "sources:  disabled (--no-src)")
     embed_bytes = sum(len(v.encode("utf-8")) for v in files.values())
     print(f"embedded: {len(files)} files ({embed_bytes:,} bytes) — file links work anywhere")
+    print("dates:    disabled (--no-dates)" if args.no_dates else
+          f"dates:    {dates_git} notes from git, {dates_fs} from filesystem · "
+          f"{src_revs} source commit stamps")
 
 
 if __name__ == "__main__":
