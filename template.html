@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>__TITLE__ — Knowledge Graph</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>__EMOJI__</text></svg>">
+<style>
+  :root {
+    --surface: #1a1a19;
+    --panel: #232322;
+    --panel-2: #2c2c2a;
+    --border: #3a3a37;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-3: #8a897f;
+    --accent: #3987e5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--surface);
+    color: var(--ink-2);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  #cv { position: fixed; inset: 0; display: block; touch-action: none; cursor: grab; }
+  #cv.grabbing { cursor: grabbing; }
+  #cv.pointing { cursor: pointer; }
+
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    display: flex; align-items: center; gap: 10px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px 12px;
+    pointer-events: none;
+  }
+  #brand { font-weight: 700; color: var(--ink); white-space: nowrap; font-size: 15px;
+    text-shadow: 0 1px 8px rgba(0,0,0,.8); pointer-events: auto; }
+  #brand small { color: var(--ink-3); font-weight: 400; }
+  #searchwrap { position: relative; flex: 1; max-width: 340px; pointer-events: auto; }
+  #search {
+    width: 100%; padding: 8px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: rgba(35,35,34,.92);
+    color: var(--ink); font-size: 14px; outline: none;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  #search:focus { border-color: var(--accent); }
+  #search::placeholder { color: var(--ink-3); }
+  #results {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    max-height: 46vh; overflow-y: auto; display: none;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  #results.open { display: block; }
+  .rrow { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer;
+    border-bottom: 1px solid rgba(58,58,55,.5); }
+  .rrow:last-child { border-bottom: 0; }
+  .rrow:hover, .rrow.hot { background: var(--panel-2); }
+  .rrow .nm { color: var(--ink); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rrow .gp { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--c, #888); }
+
+  #legend {
+    position: fixed; z-index: 15;
+    top: calc(52px + env(safe-area-inset-top)); left: 0; right: 0;
+    display: flex; gap: 6px; padding: 4px 12px 10px 12px;
+    overflow-x: auto; scrollbar-width: none; pointer-events: auto;
+    mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  }
+  #legend::-webkit-scrollbar { display: none; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    padding: 5px 10px; border-radius: 999px; font-size: 12px; cursor: pointer;
+    background: rgba(35,35,34,.9); border: 1px solid var(--border); color: var(--ink-2);
+    user-select: none; -webkit-user-select: none;
+  }
+  .chip b { color: var(--ink-3); font-weight: 500; }
+  .chip.off { opacity: .38; }
+  .chip.off .dot { background: var(--ink-3) !important; }
+
+  #controls {
+    position: fixed; z-index: 15; left: 10px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .cbtn {
+    width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--border);
+    background: rgba(35,35,34,.92); color: var(--ink); font-size: 17px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    user-select: none; -webkit-user-select: none;
+  }
+  .cbtn:active { background: var(--panel-2); }
+  .cbtn small { font-size: 9px; margin-left: 2px; color: var(--ink-3); }
+
+  #stats {
+    position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 5; color: var(--ink-3); font-size: 11px; pointer-events: none;
+    text-shadow: 0 1px 6px rgba(0,0,0,.9);
+  }
+
+  #panel {
+    position: fixed; z-index: 30;
+    background: var(--panel); border: 1px solid var(--border);
+    box-shadow: 0 12px 40px rgba(0,0,0,.55);
+    display: flex; flex-direction: column;
+    transition: transform .25s ease, opacity .25s ease;
+    opacity: 0; pointer-events: none;
+  }
+  #panel.open { opacity: 1; pointer-events: auto; }
+  @media (max-width: 719px) {
+    #panel {
+      left: 0; right: 0; bottom: 0; max-height: 52vh;
+      border-radius: 16px 16px 0 0; border-bottom: 0;
+      transform: translateY(105%);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    #panel.open { transform: translateY(0); }
+  }
+  @media (min-width: 720px) {
+    #panel {
+      top: calc(96px + env(safe-area-inset-top)); right: 12px; width: 340px;
+      max-height: calc(100vh - 140px); border-radius: 14px;
+      transform: translateX(16px);
+    }
+    #panel.open { transform: translateX(0); }
+  }
+  #phead { display: flex; align-items: flex-start; gap: 8px; padding: 14px 14px 0 14px; }
+  #ptitle { font-size: 16px; font-weight: 700; color: var(--ink); flex: 1; word-break: break-word; }
+  #pclose {
+    flex: none; width: 28px; height: 28px; border-radius: 8px; border: 0;
+    background: var(--panel-2); color: var(--ink-2); font-size: 15px; cursor: pointer;
+  }
+  #pbody { overflow-y: auto; padding: 8px 14px 16px 14px; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+  .pmeta { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px 0; }
+  .tag { font-size: 11px; color: var(--ink-3); background: var(--panel-2); border-radius: 6px; padding: 2px 7px; }
+  .gchip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink);
+    background: var(--panel-2); border-radius: 6px; padding: 2px 8px; }
+  .preview { color: var(--ink-2); font-size: 13px; margin-bottom: 12px; }
+  .flinks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .flinks a {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--accent); text-decoration: none; font-size: 12.5px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+    background: var(--panel-2); max-width: 100%;
+  }
+  .flinks a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lsec { color: var(--ink-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    margin: 10px 0 6px 0; }
+  .lrow {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    background: none; border: 0; color: var(--ink-2); font: inherit; font-size: 13px;
+    padding: 6px 6px; border-radius: 8px; cursor: pointer; text-align: left;
+  }
+  .lrow:hover { background: var(--panel-2); color: var(--ink); }
+  .lrow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #hint {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 4;
+    color: var(--ink-3); font-size: 12px; pointer-events: none;
+    text-shadow: 0 1px 6px rgba(0,0,0,.9); transition: opacity .6s;
+    text-align: center; white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<header id="topbar">
+  <div id="brand">__EMOJI__ __TITLE__ <small>graph</small></div>
+  <div id="searchwrap">
+    <input id="search" type="search" placeholder="Search notes…" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div id="results"></div>
+  </div>
+</header>
+<div id="legend"></div>
+<div id="controls">
+  <button class="cbtn" id="bFit" title="Fit graph">⤢</button>
+  <button class="cbtn" id="bIn" title="Zoom in">＋</button>
+  <button class="cbtn" id="bOut" title="Zoom out">－</button>
+  <button class="cbtn" id="bLbl" title="Labels: auto / all / off">Aa<small id="lblState">auto</small></button>
+  <button class="cbtn" id="bHeat" title="Re-run layout">↻</button>
+</div>
+<div id="panel">
+  <div id="phead"><div id="ptitle"></div><button id="pclose">✕</button></div>
+  <div id="pbody"></div>
+</div>
+<div id="stats"></div>
+<div id="hint">tap a node · drag to pan · pinch to zoom</div>
+
+<script>
+"use strict";
+const DATA = __GRAPH_DATA__;
+
+/* ---------- palette (validated, dark surface #1a1a19) ---------- */
+const GROUP_META = __GROUP_META__;
+const GROUP_COLOR = Object.fromEntries(GROUP_META.map(g => [g[0], g[1]]));
+const GROUP_LABEL = Object.fromEntries(GROUP_META.map(g => [g[0], g[2]]));
+
+/* ---------- build graph model ---------- */
+const nodes = DATA.nodes.map(n => ({ ...n, ghost: false }));
+for (const g of (DATA.ghosts || [])) nodes.push({ id: g.id, group: "Unresolved", ghost: true, refs: g.refs, tags: [], aliases: [], preview: "Unresolved link — no note with this name exists yet." });
+const byId = new Map(nodes.map(n => [n.id, n]));
+const edges = DATA.edges
+  .map(e => ({ s: byId.get(e.s), t: byId.get(e.t) }))
+  .filter(e => e.s && e.t);
+
+for (const n of nodes) { n.deg = 0; n.out = []; n.inc = []; n.nbr = new Set(); }
+for (const e of edges) {
+  e.s.deg++; e.t.deg++;
+  e.s.out.push(e.t); e.t.inc.push(e.s);
+  e.s.nbr.add(e.t); e.t.nbr.add(e.s);
+}
+for (const n of nodes) n.r = 3 + 1.7 * Math.sqrt(n.deg);
+const maxDeg = Math.max(...nodes.map(n => n.deg));
+const hubDeg = Math.max(14, maxDeg * 0.6);
+
+/* deterministic per-id pseudo-random */
+function hash01(str, salt) {
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+/* initial layout: one angular sector per group */
+{
+  const gs = [...new Set(nodes.map(n => n.group))];
+  const gi = new Map(gs.map((g, i) => [g, i]));
+  for (const n of nodes) {
+    const base = (gi.get(n.group) / gs.length) * Math.PI * 2;
+    const a = base + (hash01(n.id, 7) - 0.5) * (Math.PI * 2 / gs.length) * 1.4;
+    const r = 90 + 320 * hash01(n.id, 13);
+    n.x = Math.cos(a) * r; n.y = Math.sin(a) * r;
+    n.vx = 0; n.vy = 0; n.fx = null; n.fy = null;
+  }
+}
+
+/* ---------- force simulation (d3-style) ---------- */
+let alpha = 1;
+const ALPHA_MIN = 0.001, ALPHA_DECAY = 0.019, VEL_KEEP = 0.6;
+const CHARGE = -1200, CHARGE_MAX2 = 1600 * 1600;
+
+function tick() {
+  // link springs
+  for (const e of edges) {
+    const s = e.s, t = e.t;
+    let dx = (t.x + t.vx) - (s.x + s.vx), dy = (t.y + t.vy) - (s.y + s.vy);
+    let l = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+    const target = 140 + s.r + t.r;
+    const strength = 0.7 / Math.min(s.deg, t.deg);
+    const k = (l - target) / l * alpha * strength;
+    dx *= k; dy *= k;
+    const bias = s.deg / (s.deg + t.deg);
+    t.vx -= dx * bias; t.vy -= dy * bias;
+    s.vx += dx * (1 - bias); s.vy += dy * (1 - bias);
+  }
+  // n-body repulsion
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let l2 = dx * dx + dy * dy;
+      if (l2 >= CHARGE_MAX2) continue;
+      if (l2 < 1) { dx = hash01(a.id, j) - 0.5; dy = hash01(b.id, i) - 0.5; l2 = dx * dx + dy * dy + 0.01; }
+      const w = -CHARGE * alpha / Math.max(l2, 64);
+      b.vx += dx * w; b.vy += dy * w;
+      a.vx -= dx * w; a.vy -= dy * w;
+    }
+  }
+  // weak pull to origin
+  for (const n of nodes) {
+    const g = (n.deg ? 0.02 : 0.09) * alpha;
+    n.vx -= n.x * g; n.vy -= n.y * g;
+  }
+  // collision (single pass)
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      const min = a.r + b.r + 10;
+      let l2 = dx * dx + dy * dy;
+      if (l2 >= min * min || l2 === 0) continue;
+      const l = Math.sqrt(l2), push = (min - l) / l * 0.5;
+      dx *= push; dy *= push;
+      b.x += dx; b.y += dy; a.x -= dx; a.y -= dy;
+    }
+  }
+  // integrate
+  for (const n of nodes) {
+    if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0; continue; }
+    n.vx *= VEL_KEEP; n.vy *= VEL_KEEP;
+    n.x += n.vx; n.y += n.vy;
+  }
+  alpha += (0 - alpha) * ALPHA_DECAY;
+}
+function reheat(a) { alpha = Math.max(alpha, a); }
+
+/* ---------- view state ---------- */
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+let scale = 1, tx = 0, ty = 0;
+let hoverN = null, selN = null;
+let userMoved = false;
+const hiddenGroups = new Set();
+let labelMode = 0; // 0 auto, 1 all, 2 off
+let needsDraw = true;
+let tween = null;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  needsDraw = true;
+}
+window.addEventListener("resize", () => { resize(); if (!userMoved) fitView(false); });
+resize();
+
+const visible = n => !hiddenGroups.has(n.group);
+function bbox() {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+  for (const n of nodes) {
+    if (!visible(n)) continue; any = true;
+    x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r);
+    x1 = Math.max(x1, n.x + n.r); y1 = Math.max(y1, n.y + n.r);
+  }
+  return any ? { x0, y0, x1, y1 } : { x0: -100, y0: -100, x1: 100, y1: 100 };
+}
+function fitView(animate) {
+  const b = bbox();
+  const pad = 70;
+  const s = Math.min((W - pad) / (b.x1 - b.x0 + 1), (H - pad * 2.4) / (b.y1 - b.y0 + 1));
+  const ns = Math.max(0.06, Math.min(s, 2));
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  setView(W / 2 - cx * ns, H / 2 - cy * ns + 14, ns, animate);
+}
+function setView(nx, ny, ns, animate) {
+  if (!animate) { tx = nx; ty = ny; scale = ns; needsDraw = true; return; }
+  tween = { t0: performance.now(), dur: 380, fx: tx, fy: ty, fs: scale, nx, ny, ns };
+}
+function stepTween(now) {
+  if (!tween) return;
+  let p = Math.min(1, (now - tween.t0) / tween.dur);
+  p = 1 - Math.pow(1 - p, 3);
+  tx = tween.fx + (tween.nx - tween.fx) * p;
+  ty = tween.fy + (tween.ny - tween.fy) * p;
+  scale = tween.fs + (tween.ns - tween.fs) * p;
+  needsDraw = true;
+  if (p >= 1) tween = null;
+}
+function zoomAt(px, py, factor) {
+  const ns = Math.max(0.06, Math.min(scale * factor, 6));
+  const wx = (px - tx) / scale, wy = (py - ty) / scale;
+  tx = px - wx * ns; ty = py - wy * ns; scale = ns;
+  userMoved = true; needsDraw = true;
+}
+
+/* ---------- render ---------- */
+function labelAlpha(n) {
+  if (labelMode === 2) return (n === selN || n === hoverN) ? 1 : 0;
+  let a;
+  if (labelMode === 1) a = 1;
+  else {
+    a = Math.max(0, Math.min(1, (scale - 0.15) * 1.5));
+    if (n.deg >= hubDeg) a = Math.max(a, scale >= 0.4 ? 0.92 : 0.55);
+  }
+  if (selN) a = (n === selN || selN.nbr.has(n)) ? 1 : a * 0.06;
+  else if (hoverN) a = (n === hoverN || hoverN.nbr.has(n)) ? Math.max(a, 0.9) : a * 0.35;
+  return a;
+}
+function draw() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = "#1a1a19";
+  ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(DPR * scale, 0, 0, DPR * scale, DPR * tx, DPR * ty);
+
+  const focus = selN || hoverN;
+  // edges
+  ctx.lineWidth = 1 / scale;
+  ctx.strokeStyle = "#9c9b90";
+  ctx.beginPath();
+  for (const e of edges) {
+    if (!visible(e.s) || !visible(e.t)) continue;
+    if (focus && (e.s === focus || e.t === focus)) continue;
+    ctx.moveTo(e.s.x, e.s.y); ctx.lineTo(e.t.x, e.t.y);
+  }
+  ctx.globalAlpha = focus ? 0.04 : 0.10;
+  ctx.stroke();
+  if (focus) {
+    ctx.beginPath();
+    for (const e of edges) {
+      if (!visible(e.s) || !visible(e.t)) continue;
+      if (e.s !== focus && e.t !== focus) continue;
+      ctx.moveTo(e.s.x, e.s.y); ctx.lineTo(e.t.x, e.t.y);
+    }
+    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = "#c3c2b7";
+    ctx.lineWidth = 1.4 / scale;
+    ctx.stroke();
+  }
+
+  // nodes
+  for (const n of nodes) {
+    if (!visible(n)) continue;
+    const dim = focus && n !== focus && !focus.nbr.has(n);
+    ctx.globalAlpha = dim ? 0.13 : 1;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = GROUP_COLOR[n.group] || "#888";
+    if (n.ghost) {
+      ctx.globalAlpha = dim ? 0.1 : 0.55;
+      ctx.setLineDash([3 / scale, 3 / scale]);
+      ctx.strokeStyle = "#8a897f"; ctx.lineWidth = 1.2 / scale;
+      ctx.stroke(); ctx.setLineDash([]);
+    } else {
+      ctx.fill();
+    }
+    if (n === selN) {
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2 / scale;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 2.5 / scale, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // labels
+  const fs = 12 / scale;
+  ctx.font = `500 ${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const n of nodes) {
+    if (!visible(n)) continue;
+    const a = labelAlpha(n);
+    if (a <= 0.02) continue;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = (n === selN || n === hoverN) ? "#ffffff" : "#c3c2b7";
+    ctx.strokeStyle = "rgba(26,26,25,0.85)";
+    ctx.lineWidth = 3 / scale;
+    ctx.strokeText(n.id, n.x, n.y + n.r + 4 / scale);
+    ctx.fillText(n.id, n.x, n.y + n.r + 4 / scale);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------- main loop ---------- */
+/* pre-settle synchronously so the first paint is already laid out */
+for (let i = 0; i < 400 && alpha > 0.03; i++) tick();
+let settleFit = true;
+fitView(false);
+function frame(now) {
+  if (alpha > ALPHA_MIN) {
+    tick();
+    if (settleFit && !userMoved) fitView(false);
+    needsDraw = true;
+  } else if (settleFit) { settleFit = false; if (!userMoved) fitView(false); }
+  stepTween(now);
+  if (needsDraw) { draw(); needsDraw = false; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- hit testing ---------- */
+function pick(px, py) {
+  const wx = (px - tx) / scale, wy = (py - ty) / scale;
+  const slack = 8 / scale;
+  let best = null, bd = 1e9;
+  for (const n of nodes) {
+    if (!visible(n)) continue;
+    const dx = n.x - wx, dy = n.y - wy;
+    const d = Math.sqrt(dx * dx + dy * dy) - n.r;
+    if (d < slack && d < bd) { bd = d; best = n; }
+  }
+  return best;
+}
+
+/* ---------- pointer input (mouse + touch unified) ---------- */
+const pointers = new Map();
+let dragN = null, panStart = null, pinchPrev = null;
+let downInfo = null;
+
+cv.addEventListener("pointerdown", ev => {
+  try { cv.setPointerCapture(ev.pointerId); } catch (_) {}
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  hideResults();
+  if (pointers.size === 1) {
+    downInfo = { x: ev.clientX, y: ev.clientY, t: performance.now(), moved: false };
+    const n = pick(ev.clientX, ev.clientY);
+    if (n) { dragN = n; n.fx = n.x; n.fy = n.y; }
+    else { panStart = { px: ev.clientX, py: ev.clientY, tx, ty }; cv.classList.add("grabbing"); }
+  } else if (pointers.size === 2) {
+    if (dragN) { dragN.fx = dragN.fy = null; dragN = null; }
+    panStart = null;
+    const [a, b] = [...pointers.values()];
+    pinchPrev = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  }
+});
+cv.addEventListener("pointermove", ev => {
+  const p = pointers.get(ev.pointerId);
+  if (!p) { // plain hover
+    const n = pick(ev.clientX, ev.clientY);
+    if (n !== hoverN) { hoverN = n; needsDraw = true; }
+    cv.classList.toggle("pointing", !!n);
+    return;
+  }
+  p.x = ev.clientX; p.y = ev.clientY;
+  if (downInfo && Math.hypot(ev.clientX - downInfo.x, ev.clientY - downInfo.y) > 7) downInfo.moved = true;
+  if (pointers.size === 2 && pinchPrev) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    zoomAt(pinchPrev.mx, pinchPrev.my, d / pinchPrev.d);
+    tx += mx - pinchPrev.mx; ty += my - pinchPrev.my;
+    pinchPrev = { d, mx, my };
+    needsDraw = true;
+  } else if (dragN) {
+    dragN.fx = (ev.clientX - tx) / scale;
+    dragN.fy = (ev.clientY - ty) / scale;
+    reheat(0.12); userMoved = true; needsDraw = true;
+  } else if (panStart) {
+    tx = panStart.tx + (ev.clientX - panStart.px);
+    ty = panStart.ty + (ev.clientY - panStart.py);
+    userMoved = true; needsDraw = true;
+  }
+});
+function endPointer(ev) {
+  pointers.delete(ev.pointerId);
+  if (pointers.size < 2) pinchPrev = null;
+  if (pointers.size === 0) {
+    cv.classList.remove("grabbing");
+    const tap = downInfo && !downInfo.moved && performance.now() - downInfo.t < 500;
+    if (tap) {
+      const n = pick(ev.clientX, ev.clientY);
+      if (n) select(n); else deselect();
+    }
+    if (dragN) { dragN.fx = dragN.fy = null; dragN = null; reheat(0.08); }
+    panStart = null; downInfo = null;
+  }
+}
+cv.addEventListener("pointerup", endPointer);
+cv.addEventListener("pointercancel", endPointer);
+cv.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  const k = ev.deltaMode === 1 ? 20 : 1;
+  zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * k * 0.0016));
+}, { passive: false });
+
+/* ---------- selection & panel ---------- */
+const panel = document.getElementById("panel");
+const ptitle = document.getElementById("ptitle");
+const pbody = document.getElementById("pbody");
+document.getElementById("pclose").addEventListener("click", deselect);
+
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function linkRow(n) {
+  return `<button class="lrow" data-id="${esc(n.id)}">
+    <span class="dot" style="--c:${GROUP_COLOR[n.group]}"></span>
+    <span class="nm">${esc(n.id)}</span></button>`;
+}
+function select(n) {
+  selN = n; needsDraw = true;
+  ptitle.textContent = n.id;
+  let h = `<div class="pmeta"><span class="gchip"><span class="dot" style="--c:${GROUP_COLOR[n.group]}"></span>${esc(GROUP_LABEL[n.group] || n.group)}</span>`;
+  for (const t of (n.tags || [])) h += `<span class="tag">#${esc(t)}</span>`;
+  h += `</div>`;
+  if (n.preview) h += `<p class="preview">${esc(n.preview)}</p>`;
+  const files = [];
+  if (n.path) files.push(`<a href="${encodeURI(n.path)}" target="_blank" rel="noopener">📝 <span>note.md</span></a>`);
+  if (n.src) files.push(`<a href="${encodeURI(n.src)}" target="_blank" rel="noopener">⚙️ <span>${esc(n.src)}</span></a>`);
+  if (files.length) h += `<div class="flinks">${files.join("")}</div>`;
+  const outs = n.out ? n.out.filter(visible) : [];
+  const ins = n.inc ? n.inc.filter(visible) : [];
+  if (outs.length) h += `<div class="lsec">Links to · ${outs.length}</div>` + outs.map(linkRow).join("");
+  if (ins.length) h += `<div class="lsec">Linked from · ${ins.length}</div>` + ins.map(linkRow).join("");
+  if (n.ghost && n.refs) h += `<div class="lsec">Referenced by</div>` + n.refs.map(id => byId.has(id) ? linkRow(byId.get(id)) : "").join("");
+  pbody.innerHTML = h;
+  pbody.scrollTop = 0;
+  panel.classList.add("open");
+  document.getElementById("hint").style.opacity = 0;
+}
+function deselect() {
+  selN = null; needsDraw = true;
+  panel.classList.remove("open");
+}
+pbody.addEventListener("click", ev => {
+  const btn = ev.target.closest(".lrow");
+  if (!btn) return;
+  const n = byId.get(btn.dataset.id);
+  if (n) focusNode(n);
+});
+function focusNode(n) {
+  select(n);
+  const ns = Math.max(scale, Math.min(1.6, 1.1));
+  const yOff = window.innerWidth < 720 ? -H * 0.12 : 0;
+  setView(W / 2 - n.x * ns, H / 2 - n.y * ns + yOff, ns, true);
+  userMoved = true;
+}
+
+/* ---------- search ---------- */
+const searchEl = document.getElementById("search");
+const resultsEl = document.getElementById("results");
+function hideResults() { resultsEl.classList.remove("open"); }
+function runSearch() {
+  const q = searchEl.value.trim().toLowerCase();
+  if (!q) { hideResults(); return; }
+  const hits = nodes.filter(n =>
+    n.id.toLowerCase().includes(q) ||
+    (n.aliases || []).some(a => a.toLowerCase().includes(q)) ||
+    (n.tags || []).some(t => t.toLowerCase().includes(q))
+  ).slice(0, 14);
+  if (!hits.length) { hideResults(); return; }
+  resultsEl.innerHTML = hits.map((n, i) => `
+    <div class="rrow${i === 0 ? " hot" : ""}" data-id="${esc(n.id)}">
+      <span class="dot" style="--c:${GROUP_COLOR[n.group]}"></span>
+      <span class="nm">${esc(n.id)}</span>
+      <span class="gp">${esc(GROUP_LABEL[n.group] || n.group)}</span>
+    </div>`).join("");
+  resultsEl.classList.add("open");
+}
+searchEl.addEventListener("input", runSearch);
+searchEl.addEventListener("focus", runSearch);
+searchEl.addEventListener("keydown", ev => {
+  if (ev.key === "Enter") {
+    const first = resultsEl.querySelector(".rrow");
+    if (first) { pickResult(first.dataset.id); }
+  } else if (ev.key === "Escape") hideResults();
+});
+resultsEl.addEventListener("pointerdown", ev => {
+  const row = ev.target.closest(".rrow");
+  if (row) { ev.preventDefault(); pickResult(row.dataset.id); }
+});
+function pickResult(id) {
+  const n = byId.get(id);
+  hideResults(); searchEl.blur();
+  if (n) { hiddenGroups.delete(n.group); renderLegend(); focusNode(n); }
+}
+document.addEventListener("pointerdown", ev => {
+  if (!ev.target.closest("#searchwrap")) hideResults();
+});
+
+/* ---------- legend ---------- */
+const legendEl = document.getElementById("legend");
+function renderLegend() {
+  const counts = {};
+  for (const n of nodes) counts[n.group] = (counts[n.group] || 0) + 1;
+  legendEl.innerHTML = GROUP_META
+    .filter(([g]) => counts[g])
+    .map(([g, c, label]) => `
+      <span class="chip${hiddenGroups.has(g) ? " off" : ""}" data-g="${esc(g)}">
+        <span class="dot" style="--c:${c}"></span>${esc(label)} <b>${counts[g]}</b>
+      </span>`).join("");
+}
+legendEl.addEventListener("click", ev => {
+  const chip = ev.target.closest(".chip");
+  if (!chip) return;
+  const g = chip.dataset.g;
+  if (hiddenGroups.has(g)) hiddenGroups.delete(g); else hiddenGroups.add(g);
+  if (selN && hiddenGroups.has(selN.group)) deselect();
+  renderLegend(); needsDraw = true;
+});
+renderLegend();
+
+/* ---------- controls ---------- */
+document.getElementById("bFit").addEventListener("click", () => fitView(true));
+document.getElementById("bIn").addEventListener("click", () => { zoomAt(W / 2, H / 2, 1.35); });
+document.getElementById("bOut").addEventListener("click", () => { zoomAt(W / 2, H / 2, 1 / 1.35); });
+document.getElementById("bHeat").addEventListener("click", () => { reheat(0.7); settleFit = !userMoved; });
+document.getElementById("bLbl").addEventListener("click", () => {
+  labelMode = (labelMode + 1) % 3;
+  document.getElementById("lblState").textContent = ["auto", "all", "off"][labelMode];
+  needsDraw = true;
+});
+
+/* ---------- stats & hint ---------- */
+document.getElementById("stats").textContent =
+  `${nodes.filter(n => !n.ghost).length} notes · ${edges.length} links`;
+setTimeout(() => { document.getElementById("hint").style.opacity = 0; }, 6000);
+</script>
+</body>
+</html>
