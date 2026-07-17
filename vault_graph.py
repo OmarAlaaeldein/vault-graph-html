@@ -9,8 +9,11 @@ works with mouse and touch (pan / pinch-zoom / tap-select / drag).
 Optionally links notes to the source files they document: any note whose name
 matches a real file's name or stem under --src (any language: .sh, .py, .conf,
 extensionless, even directories) gets a "view source" link in its info panel.
-Links are emitted relative to the output file, so they resolve when the HTML
-lives inside (or is served from) the same tree.
+Note and source file contents are embedded into the HTML itself, so the file
+links open in an in-page viewer and keep working when the output file travels
+alone. Anything that can't be embedded (binary, over --max-embed, a directory)
+falls back to a relative link that resolves when the HTML lives inside (or is
+served from) the same tree.
 
 Usage:
   vault_graph.py [VAULT] [-o out.html] [--src DIR | --no-src] [--title NAME]
@@ -145,17 +148,31 @@ def resolve_links(notes, alias_map):
     return edges, unresolved
 
 
+def read_embed(path, limit):
+    """Return a file's text for embedding, or None (missing, binary, too big)."""
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) > limit:
+            return None
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        return None
+    if b"\x00" in raw:
+        return None
+    return raw.decode("utf-8", errors="replace")
+
+
 def build_src_map(src_root, vault, outdir):
     """Map note names to real files: exact filename match beats stem match,
     shallower paths beat deeper ones. Any extension / language / directory."""
     vault = os.path.abspath(vault)
-    candidates = {}  # lowered key -> (priority, depth, relpath)
+    candidates = {}  # lowered key -> (priority, depth, relpath, abspath)
 
     def offer(key, prio, depth, path):
         rel = os.path.relpath(path, outdir).replace(os.sep, "/")
         cur = candidates.get(key)
         if cur is None or (prio, depth) < cur[:2]:
-            candidates[key] = (prio, depth, rel)
+            candidates[key] = (prio, depth, rel, path)
 
     for root, dirs, files in os.walk(src_root):
         if os.path.abspath(root).startswith(vault):
@@ -203,6 +220,9 @@ def main():
     ap.add_argument("--emoji", default="🗺️", help="brand/favicon emoji (default: 🗺️)")
     ap.add_argument("--color", action="append", default=[], metavar="GROUP=HEX",
                     help="pin a group's color, repeatable (e.g. --color Bugs=#e66767)")
+    ap.add_argument("--max-embed", type=int, default=512, metavar="KB",
+                    help="per-file cap for embedding file contents into the HTML "
+                         "(default 512; 0 disables embedding)")
     args = ap.parse_args()
 
     vault = os.path.abspath(args.vault) if args.vault else find_vault(os.getcwd())
@@ -221,6 +241,9 @@ def main():
         sys.exit(f"error: no .md notes found in {vault}")
     edges, unresolved = resolve_links(notes, alias_map)
 
+    embed_limit = args.max_embed * 1024
+    files = {}
+
     src_mapped = 0
     if not args.no_src:
         src_root = os.path.abspath(args.src or os.path.dirname(vault))
@@ -230,6 +253,14 @@ def main():
             if hit:
                 n["src"] = hit[2]
                 src_mapped += 1
+                text = read_embed(hit[3], embed_limit)
+                if text is not None:
+                    files[hit[2]] = text
+
+    for n in notes.values():
+        text = read_embed(n["_abs"], embed_limit)
+        if text is not None:
+            files[n["path"]] = text
 
     ghosts = [{"id": t, "group": "Unresolved", "refs": sorted(refs)}
               for t, refs in sorted(unresolved.items())]
@@ -243,7 +274,8 @@ def main():
         n.pop("_abs")
         node_list.append(n)
     data = {"nodes": node_list, "ghosts": ghosts,
-            "edges": [{"s": a, "t": b} for a, b in sorted(edges)]}
+            "edges": [{"s": a, "t": b} for a, b in sorted(edges)],
+            "files": files}
 
     # group palette: slots by descending note count, overrides win, extras gray
     counts = {}
@@ -264,9 +296,12 @@ def main():
     group_meta.append(["Unresolved", "#6b6a60", "Unresolved"])
 
     esc_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # "</" must not appear inside the inline <script> (embedded file contents
+    # can contain literal "</script>"); "<\/" is the same string in JSON.
+    js = lambda obj, **kw: json.dumps(obj, ensure_ascii=False, **kw).replace("</", "<\\/")
     html = (template
-            .replace("__GROUP_META__", json.dumps(group_meta, ensure_ascii=False))
-            .replace("__GRAPH_DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+            .replace("__GROUP_META__", js(group_meta))
+            .replace("__GRAPH_DATA__", js(data, separators=(",", ":")))
             .replace("__TITLE__", esc_title)
             .replace("__EMOJI__", args.emoji))
     with open(output, "w", encoding="utf-8") as fh:
@@ -278,6 +313,8 @@ def main():
     print(f"groups:   " + ", ".join(f"{g}={counts[g]}" for g in ordered))
     print(f"sources:  {src_mapped} notes linked to real files" if not args.no_src
           else "sources:  disabled (--no-src)")
+    embed_bytes = sum(len(v.encode("utf-8")) for v in files.values())
+    print(f"embedded: {len(files)} files ({embed_bytes:,} bytes) — file links work anywhere")
 
 
 if __name__ == "__main__":

@@ -47,15 +47,22 @@ template is loaded from next to the script itself.
   (default: the vault's parent folder). This is a *heuristic* — it can't know
   that a note called "Sweep Protocol" documents `sweep.sh`; only name-shaped
   notes are linked automatically.
-- Emits all file links **relative to the output HTML**, so they work when the
-  file sits in (or is served from) the repo the vault documents.
+- **Embeds file contents into the HTML itself**: notes and matched source
+  files (text, up to `--max-embed` KB each) are inlined, so the 📝/⚙️ links
+  open in an in-page viewer — with a download button — even when the HTML
+  travels alone. Whatever can't be embedded (binary, oversized, a directory)
+  falls back to a link relative to the output HTML, which works when the file
+  sits in (or is served from) the repo the vault documents.
 
 ## Viewer features
 
 Force layout pre-settles before first paint. Search (names, aliases, tags),
 per-group legend filter chips, fit / zoom / label-mode / re-layout buttons,
-tap-to-highlight neighborhoods, and an info panel (bottom sheet on phones)
-with the note preview and clickable outgoing/incoming links.
+tap-to-highlight neighborhoods, and an info panel with the note preview,
+file links, and clickable outgoing/incoming links. On phones the panel is a
+bottom sheet that opens **compact** (~30% of the screen); drag or tap its
+handle to expand, swipe down to collapse or dismiss. File links open a
+full-screen viewer showing the embedded content.
 
 ## Options
 
@@ -68,6 +75,7 @@ with the note preview and clickable outgoing/incoming links.
 | `--title NAME` | header/brand title (default: vault folder name) |
 | `--emoji CHAR` | brand + favicon emoji (default 🗺️) |
 | `--color GROUP=HEX` | pin a group's color (repeatable) |
+| `--max-embed KB` | per-file cap for embedded file contents (default 512; 0 disables) |
 
 ## Example: the nullexit vault
 
@@ -87,6 +95,7 @@ instead of the default size-ordered assignment.)
 ## Phone notes
 
 Open the HTML any way you like — AirDrop the file, or serve the repo with
-`python3 -m http.server` and browse to it. The ⚙️/📝 file links need the
-surrounding tree (desktop or HTTP-served); a lone copied HTML still renders
-the full graph, just not those links.
+`python3 -m http.server` and browse to it. Note and source contents are
+embedded in the file, so the ⚙️/📝 links work even on a lone copied HTML;
+only non-embeddable targets (binary, oversized, directories) still need the
+surrounding tree.

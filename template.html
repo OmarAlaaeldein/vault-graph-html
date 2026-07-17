@@ -112,14 +112,23 @@
     opacity: 0; pointer-events: none;
   }
   #panel.open { opacity: 1; pointer-events: auto; }
+  #phandle {
+    display: none; justify-content: center; flex: none;
+    padding: 9px 0 3px 0; cursor: grab; touch-action: none;
+  }
+  #phandle::before { content: ""; width: 42px; height: 4px; border-radius: 2px; background: var(--border); }
   @media (max-width: 719px) {
     #panel {
-      left: 0; right: 0; bottom: 0; max-height: 52vh;
+      left: 0; right: 0; bottom: 0; max-height: 30vh;
       border-radius: 16px 16px 0 0; border-bottom: 0;
       transform: translateY(105%);
       padding-bottom: env(safe-area-inset-bottom);
+      transition: transform .25s ease, opacity .25s ease, max-height .25s ease;
     }
     #panel.open { transform: translateY(0); }
+    #panel.tall { max-height: 86vh; }
+    #phandle { display: flex; }
+    #phead { padding-top: 4px; }
   }
   @media (min-width: 720px) {
     #panel {
@@ -142,13 +151,14 @@
     background: var(--panel-2); border-radius: 6px; padding: 2px 8px; }
   .preview { color: var(--ink-2); font-size: 13px; margin-bottom: 12px; }
   .flinks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-  .flinks a {
+  .flinks a, .flinks button {
     display: inline-flex; align-items: center; gap: 6px;
     color: var(--accent); text-decoration: none; font-size: 12.5px;
+    font-family: inherit; cursor: pointer;
     border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
     background: var(--panel-2); max-width: 100%;
   }
-  .flinks a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .flinks a span, .flinks button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lsec { color: var(--ink-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
     margin: 10px 0 6px 0; }
   .lrow {
@@ -158,6 +168,32 @@
   }
   .lrow:hover { background: var(--panel-2); color: var(--ink); }
   .lrow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #viewer {
+    position: fixed; inset: 0; z-index: 40; background: var(--surface);
+    display: none; flex-direction: column;
+  }
+  #viewer.open { display: flex; }
+  #vhead {
+    display: flex; align-items: center; gap: 8px; flex: none;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  #vname { flex: 1; color: var(--ink); font-weight: 600; font-size: 14px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vbtn {
+    flex: none; width: 32px; height: 32px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel-2);
+    color: var(--ink-2); font-size: 15px; cursor: pointer;
+  }
+  .vbtn:active { background: var(--panel); }
+  #vbody {
+    flex: 1; overflow: auto; margin: 0;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom)) 14px;
+    font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--ink-2);
+    -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y;
+  }
 
   #hint {
     position: fixed; left: 50%; transform: translateX(-50%);
@@ -186,8 +222,17 @@
   <button class="cbtn" id="bHeat" title="Re-run layout">↻</button>
 </div>
 <div id="panel">
+  <div id="phandle"></div>
   <div id="phead"><div id="ptitle"></div><button id="pclose">✕</button></div>
   <div id="pbody"></div>
+</div>
+<div id="viewer">
+  <div id="vhead">
+    <div id="vname"></div>
+    <button class="vbtn" id="vdl" title="Download file">⬇</button>
+    <button class="vbtn" id="vclose" title="Close">✕</button>
+  </div>
+  <pre id="vbody"></pre>
 </div>
 <div id="stats"></div>
 <div id="hint">tap a node · drag to pan · pinch to zoom</div>
@@ -202,6 +247,7 @@ const GROUP_COLOR = Object.fromEntries(GROUP_META.map(g => [g[0], g[1]]));
 const GROUP_LABEL = Object.fromEntries(GROUP_META.map(g => [g[0], g[2]]));
 
 /* ---------- build graph model ---------- */
+const FILES = DATA.files || {};
 const nodes = DATA.nodes.map(n => ({ ...n, ghost: false }));
 for (const g of (DATA.ghosts || [])) nodes.push({ id: g.id, group: "Unresolved", ghost: true, refs: g.refs, tags: [], aliases: [], preview: "Unresolved link — no note with this name exists yet." });
 const byId = new Map(nodes.map(n => [n.id, n]));
@@ -563,6 +609,13 @@ function linkRow(n) {
     <span class="dot" style="--c:${GROUP_COLOR[n.group]}"></span>
     <span class="nm">${esc(n.id)}</span></button>`;
 }
+/* embedded content opens in the in-page viewer; otherwise fall back to a
+   relative link that resolves when the HTML lives in the source tree */
+function fileLink(path, icon, label) {
+  if (FILES[path] !== undefined)
+    return `<button data-f="${esc(path)}">${icon} <span>${esc(label)}</span></button>`;
+  return `<a href="${encodeURI(path)}" target="_blank" rel="noopener">${icon} <span>${esc(label)}</span></a>`;
+}
 function select(n) {
   selN = n; needsDraw = true;
   ptitle.textContent = n.id;
@@ -571,8 +624,8 @@ function select(n) {
   h += `</div>`;
   if (n.preview) h += `<p class="preview">${esc(n.preview)}</p>`;
   const files = [];
-  if (n.path) files.push(`<a href="${encodeURI(n.path)}" target="_blank" rel="noopener">📝 <span>note.md</span></a>`);
-  if (n.src) files.push(`<a href="${encodeURI(n.src)}" target="_blank" rel="noopener">⚙️ <span>${esc(n.src)}</span></a>`);
+  if (n.path) files.push(fileLink(n.path, "📝", n.path.split("/").pop()));
+  if (n.src) files.push(fileLink(n.src, "⚙️", n.src));
   if (files.length) h += `<div class="flinks">${files.join("")}</div>`;
   const outs = n.out ? n.out.filter(visible) : [];
   const ins = n.inc ? n.inc.filter(visible) : [];
@@ -589,10 +642,61 @@ function deselect() {
   panel.classList.remove("open");
 }
 pbody.addEventListener("click", ev => {
+  const fb = ev.target.closest("[data-f]");
+  if (fb) { openViewer(fb.dataset.f); return; }
   const btn = ev.target.closest(".lrow");
   if (!btn) return;
   const n = byId.get(btn.dataset.id);
   if (n) focusNode(n);
+});
+
+/* ---------- mobile bottom sheet: collapsed by default, expand at will ---------- */
+const phandle = document.getElementById("phandle");
+let sheetDrag = null;
+phandle.addEventListener("pointerdown", ev => {
+  sheetDrag = { y: ev.clientY };
+  try { phandle.setPointerCapture(ev.pointerId); } catch (_) {}
+});
+phandle.addEventListener("pointerup", ev => {
+  if (!sheetDrag) return;
+  const dy = ev.clientY - sheetDrag.y;
+  sheetDrag = null;
+  if (dy < -20) panel.classList.add("tall");                    // swipe up
+  else if (dy > 20) {                                           // swipe down
+    if (panel.classList.contains("tall")) panel.classList.remove("tall");
+    else deselect();
+  } else panel.classList.toggle("tall");                        // tap
+});
+phandle.addEventListener("pointercancel", () => { sheetDrag = null; });
+
+/* ---------- embedded file viewer ---------- */
+const viewer = document.getElementById("viewer");
+const vname = document.getElementById("vname");
+const vbody = document.getElementById("vbody");
+let viewerPath = null;
+function openViewer(path) {
+  viewerPath = path;
+  vname.textContent = path.split("/").pop();
+  vname.title = path;
+  vbody.textContent = FILES[path];
+  vbody.style.whiteSpace = path.endsWith(".md") ? "pre-wrap" : "pre";
+  vbody.scrollTop = 0; vbody.scrollLeft = 0;
+  viewer.classList.add("open");
+}
+function closeViewer() { viewer.classList.remove("open"); viewerPath = null; }
+document.getElementById("vclose").addEventListener("click", closeViewer);
+document.getElementById("vdl").addEventListener("click", () => {
+  if (viewerPath == null) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([FILES[viewerPath]], { type: "text/plain" }));
+  a.download = viewerPath.split("/").pop();
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+window.addEventListener("keydown", ev => {
+  if (ev.key !== "Escape") return;
+  if (viewer.classList.contains("open")) closeViewer();
+  else if (panel.classList.contains("open")) deselect();
 });
 function focusNode(n) {
   select(n);
