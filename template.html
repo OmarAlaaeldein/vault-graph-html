@@ -156,6 +156,9 @@
   .gitmeta code { background: var(--panel-2); border-radius: 5px; padding: 1px 5px;
     font: 10.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ink-2); }
   .grev { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hlink { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; }
+  .hlink code { color: var(--accent); }
+  .hlink:hover code { text-decoration: underline; }
   .flinks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .flinks a, .flinks button {
     display: inline-flex; align-items: center; gap: 6px;
@@ -622,6 +625,17 @@ function fileLink(path, icon, label) {
     return `<button data-f="${esc(path)}">${icon} <span>${esc(label)}</span></button>`;
   return `<a href="${encodeURI(path)}" target="_blank" rel="noopener">${icon} <span>${esc(label)}</span></a>`;
 }
+function githubLink(url) {
+  return `<a href="${esc(url)}" target="_blank" rel="noopener">🐙 <span>GitHub</span></a>`;
+}
+/* the commit hash: links straight to the file's GitHub history when the repo
+   has a GitHub remote, otherwise opens the same history embedded in-page */
+function revLink(hash, ghhist, history, kind) {
+  const code = `<code>${esc(hash)}</code>`;
+  if (ghhist) return `<a class="hlink" href="${esc(ghhist)}" target="_blank" rel="noopener" title="View file history on GitHub">${code}</a>`;
+  if (history && history.length) return `<button class="hlink" data-hist="${kind}" title="View commit history">${code}</button>`;
+  return code;
+}
 function select(n) {
   selN = n; needsDraw = true;
   ptitle.textContent = n.id;
@@ -636,13 +650,19 @@ function select(n) {
       if (n.modified && n.modified !== n.created) h += ` · updated <b>${esc(n.modified)}</b>`;
       h += `</div>`;
     }
-    if (n.rev) h += `<div class="grev">📝 <code>${esc(n.rev)}</code> ${esc(n.revmsg || "")}</div>`;
-    if (n.srev) h += `<div class="grev">⚙️ <code>${esc(n.srev)}</code> ${esc(n.srevmsg || "")}${n.smod ? ` · ${esc(n.smod)}` : ""}</div>`;
+    if (n.rev) h += `<div class="grev">📝 ${revLink(n.rev, n.ghhist, n.history, "note")} ${esc(n.revmsg || "")}</div>`;
+    if (n.srev) h += `<div class="grev">⚙️ ${revLink(n.srev, n.srcghhist, n.srchistory, "src")} ${esc(n.srevmsg || "")}${n.smod ? ` · ${esc(n.smod)}` : ""}</div>`;
     h += `</div>`;
   }
   const files = [];
-  if (n.path) files.push(fileLink(n.path, "📝", n.path.split("/").pop()));
-  if (n.src) files.push(fileLink(n.src, "⚙️", n.src));
+  if (n.path) {
+    files.push(fileLink(n.path, "📝", n.path.split("/").pop()));
+    if (n.gh) files.push(githubLink(n.gh));
+  }
+  if (n.src) {
+    files.push(fileLink(n.src, "⚙️", n.src));
+    if (n.srcgh) files.push(githubLink(n.srcgh));
+  }
   if (files.length) h += `<div class="flinks">${files.join("")}</div>`;
   const outs = n.out ? n.out.filter(visible) : [];
   const ins = n.inc ? n.inc.filter(visible) : [];
@@ -661,6 +681,14 @@ function deselect() {
 pbody.addEventListener("click", ev => {
   const fb = ev.target.closest("[data-f]");
   if (fb) { openViewer(fb.dataset.f); return; }
+  const hb = ev.target.closest("[data-hist]");
+  if (hb) {
+    const isSrc = hb.dataset.hist === "src";
+    const entries = isSrc ? selN.srchistory : selN.history;
+    const label = isSrc ? (selN.src || selN.id).split("/").pop() : selN.id;
+    if (entries) openHistory(entries, label);
+    return;
+  }
   const btn = ev.target.closest(".lrow");
   if (!btn) return;
   const n = byId.get(btn.dataset.id);
@@ -690,23 +718,36 @@ phandle.addEventListener("pointercancel", () => { sheetDrag = null; });
 const viewer = document.getElementById("viewer");
 const vname = document.getElementById("vname");
 const vbody = document.getElementById("vbody");
-let viewerPath = null;
+let viewerText = null, viewerName = null;
 function openViewer(path) {
-  viewerPath = path;
-  vname.textContent = path.split("/").pop();
+  viewerText = FILES[path]; viewerName = path.split("/").pop();
+  vname.textContent = viewerName;
   vname.title = path;
-  vbody.textContent = FILES[path];
+  vbody.textContent = viewerText;
   vbody.style.whiteSpace = path.endsWith(".md") ? "pre-wrap" : "pre";
   vbody.scrollTop = 0; vbody.scrollLeft = 0;
   viewer.classList.add("open");
 }
-function closeViewer() { viewer.classList.remove("open"); viewerPath = null; }
+/* commit history embedded in-page, for repos without a GitHub remote to
+   deep-link to (or when the caller wants it without leaving the page) */
+function openHistory(entries, label) {
+  viewerName = `${label}-history.txt`;
+  const width = Math.max(7, ...entries.map(e => e[0].length));
+  viewerText = entries.map(([h, d, s]) => `${h.padEnd(width)}  ${d}  ${s}`).join("\n");
+  vname.textContent = `${label} · history`;
+  vname.title = `${entries.length} commit${entries.length === 1 ? "" : "s"}`;
+  vbody.textContent = viewerText;
+  vbody.style.whiteSpace = "pre";
+  vbody.scrollTop = 0; vbody.scrollLeft = 0;
+  viewer.classList.add("open");
+}
+function closeViewer() { viewer.classList.remove("open"); viewerText = viewerName = null; }
 document.getElementById("vclose").addEventListener("click", closeViewer);
 document.getElementById("vdl").addEventListener("click", () => {
-  if (viewerPath == null) return;
+  if (viewerText == null) return;
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([FILES[viewerPath]], { type: "text/plain" }));
-  a.download = viewerPath.split("/").pop();
+  a.href = URL.createObjectURL(new Blob([viewerText], { type: "text/plain" }));
+  a.download = viewerName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });

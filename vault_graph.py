@@ -19,7 +19,9 @@ Each node is stamped with created/updated dates and the last commit that
 touched it: git history (--follow, rename-aware) when the file is committed,
 filesystem dates otherwise, and the earlier of the two wins, so a file first
 committed long after it was written keeps its true origin date. Linked source
-files get their own commit stamp.
+files get their own commit stamp. When a file's repo has a github.com remote
+it also gets a GitHub link, and its commit hash opens that file's history on
+GitHub (or, with no GitHub remote, the same history embedded in-page).
 
 Usage:
   vault_graph.py [VAULT] [-o out.html] [--src DIR | --no-src] [--title NAME]
@@ -159,9 +161,13 @@ def resolve_links(notes, alias_map):
 _git_ok = True
 
 
+MAX_HISTORY = 200  # newest commits kept per file in the embedded history
+
+
 def git_log_dates(path):
-    """(created, modified, last_hash, last_subject) from git history, or None
-    if git is missing or the file has no committed history."""
+    """(created, modified, last_hash, last_subject, history) from git history,
+    or None if git is missing or the file has no committed history. history is
+    the newest-first commit list as [hash, date, subject] rows."""
     global _git_ok
     if not _git_ok:
         return None
@@ -180,7 +186,63 @@ def git_log_dates(path):
         return None
     modified, h, subj = (lines[0].split("\x1f") + ["", ""])[:3]
     created = lines[-1].split("\x1f", 1)[0]
-    return created, modified, h, subj
+    history = []
+    for ln in lines[:MAX_HISTORY]:
+        d, ch, cs = (ln.split("\x1f") + ["", ""])[:3]
+        history.append([ch, d, cs])
+    return created, modified, h, subj, history
+
+
+_dir_root = {}   # dirname -> repo toplevel (or None)
+_root_github = {}  # repo toplevel -> https://github.com/owner/repo (or None)
+
+
+def github_file(path):
+    """(github_base_url, repo_relative_path) for a file whose repo has a
+    GitHub remote, or None. Cached per directory / per repo root."""
+    if not _git_ok:
+        return None
+    apath = os.path.realpath(path)
+    d = os.path.dirname(apath) or "."
+    if d not in _dir_root:
+        try:
+            r = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"],
+                               capture_output=True, text=True, timeout=10)
+            _dir_root[d] = r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+        except (OSError, subprocess.SubprocessError):
+            _dir_root[d] = None
+    root = _dir_root[d]
+    if not root:
+        return None
+    if root not in _root_github:
+        _root_github[root] = _github_remote(root)
+    base = _root_github[root]
+    if not base:
+        return None
+    return base, os.path.relpath(apath, root).replace(os.sep, "/")
+
+
+def _github_remote(root):
+    """Normalize the repo's remote to https://github.com/owner/repo, or None
+    when there is no remote or it doesn't point at github.com."""
+    try:
+        r = subprocess.run(["git", "-C", root, "remote", "get-url", "origin"],
+                           capture_output=True, text=True, timeout=10)
+        url = r.stdout.strip()
+        if r.returncode != 0 or not url:
+            r = subprocess.run(["git", "-C", root, "remote"],
+                               capture_output=True, text=True, timeout=10)
+            names = r.stdout.split()
+            if not names:
+                return None
+            r = subprocess.run(["git", "-C", root, "remote", "get-url", names[0]],
+                               capture_output=True, text=True, timeout=10)
+            url = r.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.match(r"(?:https?://|git://|ssh://(?:git@)?|git@)github\.com[:/]"
+                 r"([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", url)
+    return f"https://github.com/{m.group(1)}/{m.group(2)}" if m else None
 
 
 def fs_dates(path):
@@ -332,7 +394,13 @@ def main():
                     sinfo = git_log_dates(hit[3])
                     if sinfo:
                         n["smod"], n["srev"], n["srevmsg"] = sinfo[1], sinfo[2], sinfo[3]
+                        n["srchistory"] = sinfo[4]
                         src_revs += 1
+                        gh = github_file(hit[3])
+                        if gh:
+                            base, relpath = gh
+                            n["srcgh"] = f"{base}/blob/{sinfo[2]}/{relpath}"
+                            n["srcghhist"] = f"{base}/commits/{sinfo[2]}/{relpath}"
 
     dates_git = dates_fs = 0
     for n in notes.values():
@@ -344,13 +412,19 @@ def main():
         info = git_log_dates(n["_abs"])
         fs_created, fs_modified = fs_dates(n["_abs"])
         if info:
-            created, modified, rev, revmsg = info
+            created, modified, rev, revmsg, history = info
             # a file first committed long after it was written keeps its true
             # origin: the filesystem dates win wherever they are earlier
             if fs_created:
                 created, modified = min(created, fs_created), min(modified, fs_modified)
             n["created"], n["modified"], n["rev"], n["revmsg"] = created, modified, rev, revmsg
+            n["history"] = history
             dates_git += 1
+            gh = github_file(n["_abs"])
+            if gh:
+                base, relpath = gh
+                n["gh"] = f"{base}/blob/{rev}/{relpath}"
+                n["ghhist"] = f"{base}/commits/{rev}/{relpath}"
         elif fs_created:
             n["created"], n["modified"] = fs_created, fs_modified
             dates_fs += 1
@@ -411,6 +485,9 @@ def main():
     print("dates:    disabled (--no-dates)" if args.no_dates else
           f"dates:    {dates_git} notes from git, {dates_fs} from filesystem · "
           f"{src_revs} source commit stamps")
+    gh_count = sum(1 for n in node_list if n.get("gh") or n.get("srcgh"))
+    if gh_count:
+        print(f"github:   {gh_count} notes linked to a github.com remote")
 
 
 if __name__ == "__main__":

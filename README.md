@@ -66,6 +66,13 @@ itself.
   the two wins**, so notes first committed long after they were written keep
   their true origin dates. Plus the last commit hash + subject for the note
   and for its linked source file. `--no-dates` turns this off.
+- **GitHub links**: when a file's repo has a `github.com` remote (any form:
+  `git@github.com:`, `https://`, `ssh://`), its info panel gets a 🐙 GitHub
+  link straight to that file at the last commit that touched it. The commit
+  hash next to 📝/⚙️ becomes clickable too: it opens that file's history on
+  GitHub. No GitHub remote (or no remote at all)? The hash still opens a
+  history, just embedded in-page instead, from the same `git log --follow`
+  data used for the dates, so history stays free of any escaping.
 - **Embeds file contents into the HTML itself**: notes and matched source
   files (text, up to `--max-embed` KB each) are inlined, so the 📝/⚙️ links
   open in an in-page viewer (with a download button) even when the HTML
@@ -81,7 +88,9 @@ tap-to-highlight neighborhoods, and an info panel with the note preview,
 file links, and clickable outgoing/incoming links. On phones the panel is a
 bottom sheet that opens **compact** (~30% of the screen); drag or tap its
 handle to expand, swipe down to collapse or dismiss. File links open a
-full-screen viewer showing the embedded content.
+full-screen viewer showing the embedded content; the same viewer doubles as
+a commit-history list when a node's hash is clicked and there's no GitHub
+remote to send it to instead.
 
 ## Options
 
